@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local downloaded dependencies / ML models (large binaries)
+deposync/setup/_bin/
+*.bin
+*.onnx
+*.ckpt
+
+# Local job database / runtime data
+*.db-journal
+jobs.db
+output/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,41 @@
+============================================================
+ DepoSync - Building a standalone Windows .exe (optional)
+============================================================
+
+Running from source (README.txt) is the simplest path.
+If you want a single double-clickable .exe to share, use PyInstaller.
+
+------------------------------------------------------------
+1. Install build tool (after INSTALL.bat has run once)
+------------------------------------------------------------
+   pip install pyinstaller
+
+------------------------------------------------------------
+2. Build
+------------------------------------------------------------
+From inside the DepoSync folder, run:
+
+   pyinstaller --noconfirm --windowed --name DepoSync ^
+     --collect-all faster_whisper ^
+     --collect-all stable_whisper ^
+     --collect-all PyQt6 ^
+     deposync\ui\main.py
+
+   The finished app appears in:  dist\DepoSync\DepoSync.exe
+
+------------------------------------------------------------
+3. Important runtime files (NOT bundled by default)
+------------------------------------------------------------
+* ffmpeg.exe   - place it in the same folder as DepoSync.exe,
+                 or keep it on the system PATH.
+* Whisper model - downloaded automatically on first run into the
+                 install folder you pick during setup.
+
+------------------------------------------------------------
+Notes
+------------------------------------------------------------
+* The first build is large (PyTorch + Whisper). Allow time/disk.
+* For NVIDIA GPU acceleration, make sure the CUDA PyTorch build
+  installed by INSTALL.bat is the active one before building.
+* If the .exe fails to start, run DepoSync.exe from a terminal
+  (cmd) to see the error message.

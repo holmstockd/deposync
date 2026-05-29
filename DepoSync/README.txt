@@ -1,0 +1,52 @@
+============================================================
+ DepoSync - Deposition Transcript / Video Sync
+ HOW TO RUN ON YOUR WINDOWS PC
+============================================================
+
+You need Python 3.11 (64-bit) installed.
+   Download: https://www.python.org/downloads/release/python-3119/
+   IMPORTANT: During install, tick "Add python.exe to PATH".
+
+------------------------------------------------------------
+STEP 1 - INSTALL DEPENDENCIES (run once)
+------------------------------------------------------------
+1. Unzip this folder somewhere simple, e.g.  C:\DepoSync
+2. Double-click  INSTALL.bat
+   - It auto-detects your GPU (NVIDIA / AMD / CPU) and installs
+     the correct PyTorch build, plus all Python packages.
+   - This can take several minutes the first time.
+
+You also need FFmpeg on your PC (used to pull audio from video):
+   https://www.gyan.dev/ffmpeg/builds/  ->  "release essentials"
+   Unzip and either add its \bin folder to PATH, or drop ffmpeg.exe
+   next to the app. (The first-run setup can also help locate it.)
+
+------------------------------------------------------------
+STEP 2 - START THE APP
+------------------------------------------------------------
+Double-click  DepoSync.bat
+   (or run:  python deposync\ui\main.py  )
+
+------------------------------------------------------------
+TYPICAL WORKFLOW
+------------------------------------------------------------
+1. Create / open a Job.
+2. Load your transcript (E-Transcript / ASCII / .txt).
+3. Associate the deposition video(s) with the job.
+4. Run Sync  -> Whisper aligns each transcript line to a timecode.
+5. Review / fix timings (Manual Sync, Range Re-sync).
+6. Link exhibit files (auto-matched by exhibit number).
+7. Export:
+      - ASCII timecoded text (.txt)
+      - TextMap (.xmef)
+
+------------------------------------------------------------
+NOTES
+------------------------------------------------------------
+* First run downloads the Whisper model (one-time).
+* GPU is auto-detected; CPU also works (slower).
+* Need a single .exe instead of Python? See "Building an EXE"
+  in DEPLOY.txt (PyInstaller).
+
+Questions / issues: keep this folder intact (the deposync\
+package layout must stay as-is for imports to work).
