@@ -1,0 +1,6 @@
+stable-ts>=2.17.0
+faster-whisper>=0.10.0
+PyQt6>=6.4.0
+python-vlc
+soundfile>=0.12.1
+numpy>=1.24.0
