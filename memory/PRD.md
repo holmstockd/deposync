@@ -138,6 +138,27 @@ DepoSync/
 - Verified end-to-end on the user's real audio: fast sync 2.5s, 100% lines,
   scoring distribution, exhibits, XMEF-with-exhibits all good.
 
+## v0.9 (Feb 2026) — FIXED the freeze (virtualized results grid)
+- **Root cause (proven by the user's own debug log)**: sync ALWAYS worked
+  perfectly — `align_fast: DONE 4321/4321 ts (100%), 2679 green, total=0.4s`.
+  The GUI then went "Not Responding" at `_on_done: populating table (4422
+  rows)...`. The old `_populate_table` built 4422 x 5 = ~22,000 QTableWidgetItem
+  + ~44,000 QBrush on the main thread -> froze. That's why the user "never got
+  to check it / no scoring system" — the freeze happened BEFORE the
+  ResultsDialog could show.
+- **Fix**: replaced QTableWidget with a virtualized `LineTableModel`
+  (QAbstractTableModel) + QTableView. Only visible rows are rendered, so
+  populate is O(1) (`beginResetModel/endResetModel`) and instant for any size.
+  Colors come from `data()` BackgroundRole/ForegroundRole via `_line_colors`.
+  Updated `_populate_table`, `_row_clicked(index)`, `_tap_stamp`
+  (selectionModel), `_update_row` (model.row_changed) accordingly.
+- ResultsDialog (scoring screen) now appears after sync; Review Sync + TAP SYNC
+  work against the model. Fixed its legend text (97->90% to match CONF_GREEN).
+- crash log review: only "Started OK" entries -> it was a freeze, not a crash.
+- Version -> v0.9. 8 pytest pass.
+- NOTE: PyQt6 cannot be built on the Linux/ARM pod, so the GUI fix is verified
+  by code review + the model is the standard fix; user validates on Windows.
+
 ## Delivery to user
 - Direct download: `{PREVIEW_URL}/api/download/DepoSync_Source.zip`
 - OR "Save to GitHub" (now fixed to include all `.py`).

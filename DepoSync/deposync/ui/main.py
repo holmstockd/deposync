@@ -47,7 +47,7 @@ def _write_ok():
         pass
 
 # ?? imports ???????????????????????????????????????????????????????????????????
-from PyQt6.QtCore    import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore    import Qt, QThread, pyqtSignal, QTimer, QAbstractTableModel, QModelIndex
 from PyQt6.QtGui     import QColor, QFont, QBrush, QPalette, QAction
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -56,7 +56,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QToolBar, QSplitter, QSlider, QDialog,
     QDialogButtonBox, QComboBox, QSpinBox, QGroupBox, QFormLayout,
     QLineEdit, QFrame, QStackedWidget, QScrollArea,
-    QListWidget, QListWidgetItem,
+    QListWidget, QListWidgetItem, QTableView,
 )
 
 C_GN_BG=QColor(10,35,10);  C_GN_FG=QColor(70,190,70)
@@ -67,6 +67,69 @@ C_MN_BG=QColor(10,28,50);  C_MN_FG=QColor(100,180,255)
 CONF_GREEN=0.90; CONF_AMBER=0.70
 
 from deposync import debuglog as _dbg
+
+
+def _line_colors(l):
+    has_ts = l.timestamp_sec is not None
+    if l.manually_set:               return C_MN_BG, C_MN_FG
+    if not has_ts:                   return C_NO_BG, C_NO_FG
+    if l.confidence >= CONF_GREEN:    return C_GN_BG, C_GN_FG
+    if l.confidence >= CONF_AMBER:    return C_AM_BG, C_AM_FG
+    return C_RD_BG, C_RD_FG
+
+
+class LineTableModel(QAbstractTableModel):
+    """Virtualized model for the transcript grid -- renders only visible rows,
+    so even 10,000+ line transcripts populate instantly (no per-cell widgets).
+    """
+    HEADERS = ['Page', 'Line', 'Text', 'Timestamp', 'Conf']
+
+    def __init__(self, lines=None):
+        super().__init__()
+        self._lines = lines or []
+
+    def set_lines(self, lines):
+        self.beginResetModel()
+        self._lines = lines
+        self.endResetModel()
+
+    def line_at(self, row):
+        return self._lines[row] if 0 <= row < len(self._lines) else None
+
+    def row_changed(self, row):
+        if 0 <= row < len(self._lines):
+            self.dataChanged.emit(self.index(row, 0),
+                                  self.index(row, len(self.HEADERS) - 1))
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._lines)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self.HEADERS)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if (orientation == Qt.Orientation.Horizontal
+                and role == Qt.ItemDataRole.DisplayRole):
+            return self.HEADERS[section]
+        return None
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        l = self._lines[index.row()]
+        c = index.column()
+        has_ts = l.timestamp_sec is not None
+        if role == Qt.ItemDataRole.DisplayRole:
+            if c == 0: return str(l.page)
+            if c == 1: return str(l.line_num)
+            if c == 2: return l.text
+            if c == 3: return _hms(l.timestamp_sec)
+            if c == 4: return f'{l.confidence:.2f}' if has_ts else ''
+        elif role == Qt.ItemDataRole.BackgroundRole:
+            return QBrush(_line_colors(l)[0])
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            return QBrush(_line_colors(l)[1])
+        return None
 
 def _mono():
     f=QFont('Consolas',9); f.setStyleHint(QFont.StyleHint.Monospace); return f
@@ -703,8 +766,8 @@ class ResultsDialog(QDialog):
         grp=QGroupBox('Results by Confidence  (Indata standard)')
         gl=QVBoxLayout(grp)
         for c,lbl,cnt in [
-            ('#4caf50',f'>= 97%   -   {green} lines   -   auto-approved (Green)',green),
-            ('#ffb74d',f'70-97%   -   {amber} lines   -   review recommended',amber),
+            ('#4caf50',f'>= 90%   -   {green} lines   -   auto-approved (Green)',green),
+            ('#ffb74d',f'70-90%   -   {amber} lines   -   review recommended',amber),
             ('#ef5350',f'< 70%   -   {red} lines   -   needs attention',red),
             ('#555',   f'No timestamp   -   {no_ts} lines',no_ts),
         ]:
@@ -815,16 +878,19 @@ class MainWindow(QMainWindow):
         self._prog_lbl=QLabel(''); self._prog_lbl.setStyleSheet('color:#5af;font-size:10px;')
         self._prog_lbl.setVisible(False); ll.addWidget(self._prog_lbl)
 
-        self._tbl=QTableWidget(0,5)
-        self._tbl.setHorizontalHeaderLabels(['Page','Line','Text','Timestamp','Conf'])
+        self._model=LineTableModel([])
+        self._tbl=QTableView()
+        self._tbl.setModel(self._model)
         self._tbl.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.Stretch)
         for c in (0,1,3,4):
             self._tbl.horizontalHeader().setSectionResizeMode(c,QHeaderView.ResizeMode.ResizeToContents)
         self._tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._tbl.verticalHeader().setVisible(False)
+        self._tbl.verticalHeader().setDefaultSectionSize(20)
         self._tbl.setFont(_mono()); self._tbl.setAlternatingRowColors(True)
-        self._tbl.cellClicked.connect(self._row_clicked)
+        self._tbl.clicked.connect(self._row_clicked)
         ll.addWidget(self._tbl,1)
         self._summary=QLabel(''); self._summary.setStyleSheet('color:#666;font-size:10px;padding:2px;')
         ll.addWidget(self._summary)
@@ -1050,25 +1116,8 @@ class MainWindow(QMainWindow):
     # ?? Table ?????????????????????????????????????????????????????????????????
 
     def _populate_table(self):
-        self._tbl.setUpdatesEnabled(False)
-        self._tbl.setRowCount(len(self._lines))
-        try:
-            for row,l in enumerate(self._lines):
-                has_ts=l.timestamp_sec is not None
-                if l.manually_set:               bg,fg=C_MN_BG,C_MN_FG
-                elif not has_ts:                 bg,fg=C_NO_BG,C_NO_FG
-                elif l.confidence>=CONF_GREEN:   bg,fg=C_GN_BG,C_GN_FG
-                elif l.confidence>=CONF_AMBER:   bg,fg=C_AM_BG,C_AM_FG
-                else:                            bg,fg=C_RD_BG,C_RD_FG
-                for col,val in enumerate([str(l.page),str(l.line_num),l.text,
-                                          _hms(l.timestamp_sec),
-                                          f'{l.confidence:.2f}' if has_ts else '']):
-                    it=QTableWidgetItem(val)
-                    it.setBackground(QBrush(bg)); it.setForeground(QBrush(fg))
-                    self._tbl.setItem(row,col,it)
-            self._tbl.verticalHeader().setDefaultSectionSize(20)
-        finally:
-            self._tbl.setUpdatesEnabled(True)
+        # Virtualized model -> instant even for 10,000+ rows (no per-cell widgets).
+        self._model.set_lines(self._lines)
         ts=sum(1 for l in self._lines if l.timestamp_sec is not None)
         g=sum(1 for l in self._lines if l.timestamp_sec and l.confidence>=CONF_GREEN)
         a=sum(1 for l in self._lines if l.timestamp_sec and CONF_AMBER<=l.confidence<CONF_GREEN)
@@ -1076,7 +1125,8 @@ class MainWindow(QMainWindow):
             self._summary.setText(
                 f'  {ts}/{len(self._lines)} timestamped   Green={g}   Amber={a}   No TS={len(self._lines)-ts}')
 
-    def _row_clicked(self,row,_col):
+    def _row_clicked(self,index):
+        row=index.row()
         if row<len(self._lines) and self._has_player:
             l=self._lines[row]
             if l.timestamp_sec is not None: self._player.seek(l.timestamp_sec)
@@ -1293,16 +1343,17 @@ class MainWindow(QMainWindow):
     def _tap_stamp(self):
         if not self._has_player: return
         t=self._player.get_position()
-        rows=sorted({i.row() for i in self._tbl.selectedItems()})
+        sel=self._tbl.selectionModel().selectedRows()
+        rows=sorted({i.row() for i in sel})
         if rows:
             row=rows[0]
             if row<len(self._lines):
                 l=self._lines[row]; l.timestamp_sec=round(t,3)
                 l.confidence=1.0; l.manually_set=True; self._update_row(row)
             nxt=rows[-1]+1
-            if nxt<self._tbl.rowCount():
+            if nxt<self._model.rowCount():
                 self._tbl.selectRow(nxt)
-                self._tbl.scrollTo(self._tbl.model().index(nxt,0),
+                self._tbl.scrollTo(self._model.index(nxt,0),
                                     QAbstractItemView.ScrollHint.PositionAtCenter)
             else: self._btn_tap.setChecked(False)
         self._resume()
@@ -1312,18 +1363,7 @@ class MainWindow(QMainWindow):
             self._player.play(); self._btn_play.setText('Pause')
 
     def _update_row(self,row):
-        if row>=len(self._lines): return
-        l=self._lines[row]; has_ts=l.timestamp_sec is not None
-        if l.manually_set: bg,fg=C_MN_BG,C_MN_FG
-        elif not has_ts:   bg,fg=C_NO_BG,C_NO_FG
-        elif l.confidence>=CONF_GREEN: bg,fg=C_GN_BG,C_GN_FG
-        else: bg,fg=C_AM_BG,C_AM_FG
-        for col,val in enumerate([str(l.page),str(l.line_num),l.text,
-                                   _hms(l.timestamp_sec),
-                                   f'{l.confidence:.2f}' if has_ts else '']):
-            it=self._tbl.item(row,col) or QTableWidgetItem(val)
-            it.setText(val); it.setBackground(QBrush(bg)); it.setForeground(QBrush(fg))
-            self._tbl.setItem(row,col,it)
+        self._model.row_changed(row)
 
     def _refresh(self):
         has_t=bool(self._lines); has_v=bool(self._video_data)
