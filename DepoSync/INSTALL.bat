@@ -20,7 +20,7 @@ for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "Get-WmiObjec
 echo No GPU -- CPU mode
 pip install torch
 :deps
-pip install stable-ts faster-whisper PyQt6 python-vlc soundfile numpy
+pip install stable-ts faster-whisper PyQt6 python-vlc soundfile numpy pywin32
 echo.
 echo Done. Run DepoSync.bat to start.
 pause

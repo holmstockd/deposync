@@ -37,8 +37,16 @@ TYPICAL WORKFLOW
 5. Review / fix timings (Manual Sync, Range Re-sync).
 6. Link exhibit files (auto-matched by exhibit number).
 7. Export:
+      - Sanction / OnCue (.mdb)  <-- recommended for OnCue & TrialDirector
+      - TimeCoder (.cms)
       - ASCII timecoded text (.txt)
       - TextMap (.xmef)
+
+   NOTE on .mdb / .cms: these are Microsoft Access databases. Writing them
+   needs the Access engine on your PC. If export fails, install the FREE
+   "Microsoft Access Database Engine 2016 Redistributable" (pick the version
+   matching your Python: 64-bit Python -> 64-bit engine), then retry.
+   INSTALL.bat already installs the required pywin32 package.
 
 ------------------------------------------------------------
 NOTES

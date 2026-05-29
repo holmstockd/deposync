@@ -1003,6 +1003,8 @@ class MainWindow(QMainWindow):
         if not any(l.timestamp_sec for l in self._lines):
             QMessageBox.warning(self,'Nothing to Export','Run a sync first.'); return
         cb=QComboBox()
+        cb.addItem('Sanction / OnCue (.mdb)  --  OnCue, TrialDirector  [recommended]','mdb')
+        cb.addItem('TimeCoder (.cms)  --  OnCue, Sanction','cms')
         cb.addItem('InData / YesLaw ASCII (.txt)  --  TimeCoder Pro, TrialDirector','ascii')
         cb.addItem('XMEF (.xmef)  --  TextMap, CaseMap, Relativity','xmef')
         dlg=QDialog(self); dlg.setWindowTitle('Export')
@@ -1015,6 +1017,26 @@ class MainWindow(QMainWindow):
             p,_=QFileDialog.getSaveFileName(self,'Save ASCII','','InData ASCII (*.txt)')
             if not p: return
             from deposync.export.ascii_export import write; n=write(self._lines,p)
+        elif fmt in ('mdb','cms'):
+            ext='mdb' if fmt=='mdb' else 'cms'
+            cap='Save Sanction/OnCue MDB' if fmt=='mdb' else 'Save TimeCoder CMS'
+            p,_=QFileDialog.getSaveFileName(self,cap,'',f'{ext.upper()} (*.{ext})')
+            if not p: return
+            if not p.lower().endswith('.'+ext): p+='.'+ext
+            w=os.path.splitext(os.path.basename(self._t_path))[0].replace('_',' ')
+            vp=self._video_data[0]['path'] if self._video_data else ''
+            try:
+                from deposync.export.sanction_mdb import write
+                n=write(p,self._lines,witness=w,video_path=vp,
+                        video_dur_sec=self._video_dur)
+            except Exception as e:
+                QMessageBox.critical(self,'MDB/CMS Export',
+                    'Could not write the Access database.\n\n'
+                    'This format needs the Microsoft Access Database Engine on '
+                    'Windows. Install the free "Microsoft Access Database Engine '
+                    '2016 Redistributable" (match your Python 32/64-bit), then '
+                    'retry.\n\nDetails: '+str(e))
+                return
         else:
             p,_=QFileDialog.getSaveFileName(self,'Save XMEF','','XMEF (*.xmef)')
             if not p: return
