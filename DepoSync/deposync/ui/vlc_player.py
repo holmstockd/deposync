@@ -46,14 +46,18 @@ class VLCPlayerWidget(QWidget):
         except Exception as e:
             print(f'VLC init failed: {e}')
 
-    def load(self, path: str):
+    def load(self, path: str, autoplay: bool = False):
         if not self._player:
             return
         try:
-            import vlc
             media = self._instance.media_new(path)
+            try:
+                media.parse_with_options(1, 0)   # MediaParseFlag.local -> get duration
+            except Exception:
+                pass
             self._player.set_media(media)
-            self._player.play()
+            if autoplay:
+                self._player.play()
             self._poll_timer.start()
             QTimer.singleShot(500, self._get_duration)
         except Exception as e:
@@ -84,12 +88,25 @@ class VLCPlayerWidget(QWidget):
 
     def play(self):
         if self._player:
-            try: self._player.play(); self._poll_timer.start()
+            try: self._player.set_pause(0); self._player.play(); self._poll_timer.start()
             except Exception: pass
 
     def pause(self):
         if self._player:
-            try: self._player.pause()
+            try: self._player.set_pause(1)
+            except Exception: pass
+
+    def stop(self):
+        """Hard stop: halts video AND audio (used during sync)."""
+        if self._player:
+            try:
+                self._player.stop()
+                self._poll_timer.stop()
+            except Exception: pass
+
+    def set_mute(self, on: bool):
+        if self._player:
+            try: self._player.audio_set_mute(bool(on))
             except Exception: pass
 
     def seek(self, t: float):

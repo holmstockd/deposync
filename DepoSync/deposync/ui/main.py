@@ -56,6 +56,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QToolBar, QSplitter, QSlider, QDialog,
     QDialogButtonBox, QComboBox, QSpinBox, QGroupBox, QFormLayout,
     QLineEdit, QFrame, QStackedWidget, QScrollArea,
+    QListWidget, QListWidgetItem,
 )
 
 C_GN_BG=QColor(10,35,10);  C_GN_FG=QColor(70,190,70)
@@ -188,93 +189,112 @@ class SetupWizard(QDialog):
         l.addStretch()
         self._stack.addWidget(w)   # index 0
 
-    # ?? Step 2+: Per-video file + page:line ???????????????????????????????????
+    # -- Step 2+: per-video file + click-to-set testimony range -----------------
 
     def _build_video_page(self, idx, total, sp, sl, ep, el):
-        w   = QScrollArea()
-        w.setWidgetResizable(True)
-        inner = QWidget()
-        l     = QVBoxLayout(inner)
-        l.setSpacing(10)
+        w = QWidget()
+        l = QVBoxLayout(w)
+        l.setSpacing(8)
+        l.setContentsMargins(2, 2, 2, 2)
 
-        title = (f'Video {idx+1} of {total}'
-                 if total > 1 else 'Video File')
+        title = (f'Video {idx+1} of {total}' if total > 1 else 'Video File')
         l.addWidget(QLabel(f'<b>{title}</b>'))
 
-        # File
-        file_grp = QGroupBox('Video / Audio File')
-        fl = QHBoxLayout(file_grp)
+        # File row
+        file_row = QHBoxLayout()
         path_lbl = QLabel('(no file selected)')
         path_lbl.setStyleSheet('color:#888;font-size:10px;')
-        browse = QPushButton('Browse...')
-        browse.setFixedWidth(90)
-        fl.addWidget(path_lbl, 1)
-        fl.addWidget(browse)
-        l.addWidget(file_grp)
+        browse = QPushButton('Browse...'); browse.setFixedWidth(90)
+        file_row.addWidget(QLabel('File:'))
+        file_row.addWidget(path_lbl, 1)
+        file_row.addWidget(browse)
+        l.addLayout(file_row)
 
-        # Start page:line
-        start_grp = QGroupBox('Start of Testimony in This Video')
-        sg = QHBoxLayout(start_grp)
-        sg.addWidget(QLabel('Page:'))
-        sp_spin = QSpinBox(); sp_spin.setRange(1, self._last_page)
-        sp_spin.setValue(sp); sp_spin.setFixedWidth(70)
-        sl_spin = QSpinBox(); sl_spin.setRange(1, 25)
-        sl_spin.setValue(sl); sl_spin.setFixedWidth(60)
-        sg.addWidget(sp_spin); sg.addWidget(QLabel('  Line:'))
-        sg.addWidget(sl_spin); sg.addStretch()
-        # Preview
-        start_preview = QLabel('')
-        start_preview.setStyleSheet('color:#5bc8ff;font-size:10px;')
-        start_preview.setWordWrap(True)
-        sg.addWidget(start_preview, 1)
-        l.addWidget(start_grp)
+        l.addWidget(QLabel(
+            'Pick where this video starts and ends in the transcript:\n'
+            'click a line below, then "Set as START"; click the last line, '
+            'then "Set as END". Use Search to jump to a phrase.'))
 
-        # End page:line
-        end_grp = QGroupBox('End of Testimony in This Video')
-        eg = QHBoxLayout(end_grp)
-        eg.addWidget(QLabel('Page:'))
-        ep_spin = QSpinBox(); ep_spin.setRange(1, self._last_page)
-        ep_spin.setValue(ep); ep_spin.setFixedWidth(70)
-        el_spin = QSpinBox(); el_spin.setRange(1, 25)
-        el_spin.setValue(el); el_spin.setFixedWidth(60)
-        eg.addWidget(ep_spin); eg.addWidget(QLabel('  Line:'))
-        eg.addWidget(el_spin); eg.addStretch()
-        end_preview = QLabel('')
-        end_preview.setStyleSheet('color:#ff8c00;font-size:10px;')
-        end_preview.setWordWrap(True)
-        eg.addWidget(end_preview, 1)
-        l.addWidget(end_grp)
+        # Search box
+        search = QLineEdit()
+        search.setPlaceholderText('Search transcript text (e.g. "videographer")...')
+        l.addWidget(search)
 
-        l.addStretch()
-        w.setWidget(inner)
+        # Transcript line list
+        lst = QListWidget()
+        lst.setFont(_mono())
+        lst.setStyleSheet('font-size:11px;')
+        for ln in self._lines:
+            it = QListWidgetItem(f'p{ln.page:>4}:{ln.line_num:<2}  {ln.text}')
+            it.setData(Qt.ItemDataRole.UserRole, (ln.page, ln.line_num))
+            lst.addItem(it)
+        l.addWidget(lst, 1)
 
-        # Wire up previews
+        # Set buttons
+        btn_row = QHBoxLayout()
+        b_start = QPushButton('Set as START')
+        b_end   = QPushButton('Set as END')
+        b_start.setStyleSheet('background:#13507a;color:#fff;font-weight:bold;padding:5px 12px;')
+        b_end.setStyleSheet('background:#7a4a13;color:#fff;font-weight:bold;padding:5px 12px;')
+        btn_row.addWidget(b_start); btn_row.addWidget(b_end); btn_row.addStretch()
+        l.addLayout(btn_row)
+
+        # Current range labels
+        start_lbl = QLabel(); start_lbl.setStyleSheet('color:#5bc8ff;font-size:11px;')
+        end_lbl   = QLabel(); end_lbl.setStyleSheet('color:#ff8c00;font-size:11px;')
+        start_lbl.setWordWrap(True); end_lbl.setWordWrap(True)
+        l.addWidget(start_lbl); l.addWidget(end_lbl)
+
+        # Storage (plain ints; updated by the Set buttons)
+        w._path = ''
+        w._sp, w._sl, w._ep, w._el = sp, sl, ep, el
+
         lkp = {(ln.page, ln.line_num): ln.text for ln in self._lines}
-        def _upd_preview(*_):
-            s = lkp.get((sp_spin.value(), sl_spin.value()), '')
-            e = lkp.get((ep_spin.value(), el_spin.value()), '')
-            if not s:
-                # nearest line on page
-                s = next((ln.text for ln in self._lines
-                          if ln.page == sp_spin.value()), '(not found)')
-            if not e:
-                e = next((ln.text for ln in reversed(self._lines)
-                          if ln.page == ep_spin.value()), '(not found)')
-            start_preview.setText(f'> "{s[:55]}"')
-            end_preview.setText(  f'> "{e[:55]}"')
-        sp_spin.valueChanged.connect(_upd_preview)
-        sl_spin.valueChanged.connect(_upd_preview)
-        ep_spin.valueChanged.connect(_upd_preview)
-        el_spin.valueChanged.connect(_upd_preview)
-        _upd_preview()
 
-        # Store widget refs
-        w._path_lbl  = path_lbl
-        w._path      = ''
-        w._sp        = sp_spin
-        w._sl        = sl_spin
-        w._ep        = ep_spin
-        w._el        = el_spin
+        def _txt(p, ln):
+            return f'p{p}:{ln}   "{lkp.get((p, ln), "")[:55]}"'
+
+        def _refresh_lbls():
+            start_lbl.setText(f'START:  {_txt(w._sp, w._sl)}')
+            end_lbl.setText(  f'END:    {_txt(w._ep, w._el)}')
+        _refresh_lbls()
+
+        def _selected():
+            it = lst.currentItem()
+            return it.data(Qt.ItemDataRole.UserRole) if it else None
+
+        def _set_start():
+            d = _selected()
+            if not d:
+                QMessageBox.information(self, 'Pick a line',
+                    'Click a transcript line in the list first, then Set as START.')
+                return
+            w._sp, w._sl = d; _refresh_lbls()
+
+        def _set_end():
+            d = _selected()
+            if not d:
+                QMessageBox.information(self, 'Pick a line',
+                    'Click a transcript line in the list first, then Set as END.')
+                return
+            w._ep, w._el = d; _refresh_lbls()
+
+        b_start.clicked.connect(_set_start)
+        b_end.clicked.connect(_set_end)
+
+        def _search(txt):
+            t = txt.strip().lower()
+            first = None
+            for i in range(lst.count()):
+                it = lst.item(i)
+                match = (t in it.text().lower()) if t else True
+                it.setHidden(bool(t) and not match)
+                if t and match and first is None:
+                    first = it
+            if first:
+                lst.setCurrentItem(first)
+                lst.scrollToItem(first, QAbstractItemView.ScrollHint.PositionAtTop)
+        search.textChanged.connect(_search)
 
         def _browse():
             p, _ = QFileDialog.getOpenFileName(
@@ -406,9 +426,9 @@ class SetupWizard(QDialog):
                 QMessageBox.warning(self, 'File Not Found',
                     f'Cannot find:\n{vp._path}')
                 return
-            if (vp._sp.value(), vp._sl.value()) >= (vp._ep.value(), vp._el.value()):
+            if (vp._sp, vp._sl) >= (vp._ep, vp._el):
                 QMessageBox.warning(self, 'Invalid Range',
-                    'Start must be before End.')
+                    'Start must be before End. Use "Set as START" / "Set as END".')
                 return
 
         # Moving to confirm page: collect all video data and rebuild
@@ -417,10 +437,10 @@ class SetupWizard(QDialog):
             for vp in self._vpages:
                 self._video_data.append({
                     'path': vp._path,
-                    'sp':   vp._sp.value(),
-                    'sl':   vp._sl.value(),
-                    'ep':   vp._ep.value(),
-                    'el':   vp._el.value(),
+                    'sp':   vp._sp,
+                    'sl':   vp._sl,
+                    'ep':   vp._ep,
+                    'el':   vp._el,
                 })
             # Rebuild confirm page with current data
             confirm_idx = self._stack.count() - 1
@@ -445,10 +465,10 @@ class SetupWizard(QDialog):
         for vp in (self._vpages if hasattr(self, '_vpages') else []):
             self._video_data.append({
                 'path': vp._path,
-                'sp':   vp._sp.value(),
-                'sl':   vp._sl.value(),
-                'ep':   vp._ep.value(),
-                'el':   vp._el.value(),
+                'sp':   vp._sp,
+                'sl':   vp._sl,
+                'ep':   vp._ep,
+                'el':   vp._el,
             })
 
     def result_data(self):
@@ -920,9 +940,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self,'No Videos',
                 'No videos configured. Click Add Transcript to set them up.'); return
 
-        # Pause video
+        # Stop video+audio completely while syncing (no playback during sync)
         if self._has_player:
-            try: self._player.pause(); self._btn_play.setText('Play')
+            try: self._player.stop(); self._player.set_mute(True); self._btn_play.setText('Play')
             except Exception: pass
 
         # Build progress steps
@@ -949,6 +969,9 @@ class MainWindow(QMainWindow):
     def _cancel_sync(self):
         if self._worker and self._worker.isRunning(): self._worker.terminate()
         if self._prog_dlg: self._prog_dlg.accept(); self._prog_dlg=None
+        if self._has_player:
+            try: self._player.set_mute(False)
+            except Exception: pass
         self._act_sync.setEnabled(True)
         self.statusBar().showMessage('Sync cancelled.')
 
@@ -956,6 +979,12 @@ class MainWindow(QMainWindow):
         self._video_dur=self._worker.video_dur
         self._act_sync.setEnabled(True)
         if self._prog_dlg: self._prog_dlg.accept(); self._prog_dlg=None
+        # Restore the player for review (it was stopped+muted during sync)
+        if self._has_player and self._video_data:
+            try:
+                self._player.set_mute(False)
+                self._player.load(self._video_data[0]['path'], autoplay=False)
+            except Exception: pass
         self._populate_table(); self._refresh()
         ts=sum(1 for l in self._lines if l.timestamp_sec is not None)
         pct=ts*100//max(len(self._lines),1)
@@ -967,6 +996,9 @@ class MainWindow(QMainWindow):
     def _on_error(self,msg):
         self._act_sync.setEnabled(True)
         if self._prog_dlg: self._prog_dlg.accept(); self._prog_dlg=None
+        if self._has_player:
+            try: self._player.set_mute(False)
+            except Exception: pass
         self._refresh()
         QMessageBox.critical(self,'Sync Error',msg)
 

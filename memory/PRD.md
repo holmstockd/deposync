@@ -70,6 +70,27 @@ DepoSync/
 - Some handoff-listed files never existed on disk (tools/, installer/,
   setup_wizard.py, job_library.py, cli.py) — scrapped iteration.
 
+## v0.6 (Feb 2026) — sync actually finishes + range picker + playback fixes
+- **FFmpeg "-22 / never finished" FIXED**: align now pre-decodes the extracted
+  WAV into a float32 numpy array (soundfile) and feeds THAT to stable-ts,
+  bypassing faster-whisper's internal ffmpeg s16le pipe that emitted "Error
+  submitting a packet to the muxer / Error writing trailer (-22)" and stalled
+  the run. Also avoids decoding twice. `extract.py` hardened: config ffmpeg
+  path, `-vn`, explicit `pcm_s16le`, size check.
+- **Audio/video no longer plays during sync**: VLC `load()` no longer auto-plays;
+  added real `stop()` + `set_mute()`; `pause/play` use explicit `set_pause`
+  (libVLC `pause()` only toggled, unreliable). `_run_sync` now `stop()`+mutes;
+  `_on_done` reloads paused + unmutes for review.
+- **Speed**: CTranslate2 now uses all CPU threads (`cpu_threads=os.cpu_count()`).
+  Note: AI forced-alignment is inherently heavier than InData/YesLaw (which read
+  the videographer's burned-in timecode / manual sync, no AI). For a big speedup
+  users can pick "Tiny -- fastest" in Settings (adequate for forced alignment of
+  known text), or use NVIDIA GPU (~5x). AMD GPUs unsupported by the engine.
+- **Range picker (requested UX)**: wizard video page replaced spinboxes with a
+  searchable transcript list -> click a line + "Set as START" / "Set as END",
+  per video. Data stored as plain ints (`vp._sp/_sl/_ep/_el`).
+- Version bumped to **v0.6** (title bar).
+
 ## Delivery to user
 - Direct download: `{PREVIEW_URL}/api/download/DepoSync_Source.zip`
 - OR "Save to GitHub" (now fixed to include all `.py`).

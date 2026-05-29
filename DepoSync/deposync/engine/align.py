@@ -127,9 +127,13 @@ _cache: dict = {}
 def _load_model(model_size: str, device: str, compute_type: str):
     key = (model_size, device, compute_type)
     if key not in _cache:
+        import os
         import stable_whisper
+        # Use all available CPU threads for CTranslate2 (faster on modern CPUs).
+        cpu_threads = os.cpu_count() or 4
         _cache[key] = stable_whisper.load_faster_whisper(
-            model_size, device=device, compute_type=compute_type)
+            model_size, device=device, compute_type=compute_type,
+            cpu_threads=cpu_threads, num_workers=1)
     return _cache[key]
 
 
@@ -167,13 +171,26 @@ def run(
     # Load model
     model = _load_model(model_size, device, compute_type)
 
-    # Get audio duration for progress estimation
+    # Pre-decode audio ourselves into a float32 mono array and feed THAT to
+    # stable-ts. This bypasses faster-whisper's internal ffmpeg s16le pipe,
+    # which on Windows can emit "Error submitting a packet to the muxer /
+    # Error writing trailer (-22)" and stall the sync. It also avoids decoding
+    # the audio twice (we already extracted a 16 kHz mono WAV).
+    audio_dur_secs = 0.0
     try:
         import soundfile as sf
-        with sf.SoundFile(audio_path) as af:
-            audio_dur_secs = len(af) / af.samplerate
+        audio_input, sr = sf.read(audio_path, dtype='float32', always_2d=False)
+        if getattr(audio_input, 'ndim', 1) > 1:
+            audio_input = audio_input.mean(axis=1)
+        audio_dur_secs = len(audio_input) / float(sr or 16000)
+        if sr and sr != 16000:
+            import numpy as np
+            ratio = 16000.0 / sr
+            idx = (np.arange(int(len(audio_input) * ratio)) / ratio).astype('int64')
+            idx = idx[idx < len(audio_input)]
+            audio_input = audio_input[idx]
     except Exception:
-        audio_dur_secs = 0.0
+        audio_input = audio_path
 
     # stable-ts align() is synchronous with no callbacks.
     # Run a timer thread to pulse progress based on elapsed time vs expected duration.
@@ -205,7 +222,7 @@ def run(
     # Run forced alignment
     try:
         result = model.align(
-            audio_path, text, language=language, verbose=None)
+            audio_input, text, language=language, verbose=None)
     except Exception as e:
         raise RuntimeError(f'stable-ts align() failed: {e}')
     finally:
