@@ -73,3 +73,22 @@ DepoSync/
 ## Delivery to user
 - Direct download: `{PREVIEW_URL}/api/download/DepoSync_Source.zip`
 - OR "Save to GitHub" (now fixed to include all `.py`).
+
+## v0.5 (Feb 2026) — UI/flow fixes from Windows screenshot
+- **VERSION shown** in window title (`DepoSync v0.5`) so the user can confirm an
+  update actually took effect. Version constant in `deposync/__init__.py`.
+- **Wizard flow bug FIXED**: on Step 1 the stack had only 1 page, so `is_last`
+  was wrongly True -> it showed "Sync Now"/"Later" instead of "Next". Clicking
+  the blue "Sync Now" accepted with ZERO videos, so the app never asked for the
+  video file. Fixed `_show_page`: `is_last = (idx==total) and idx!=0`. Step 1 now
+  shows "Next >" -> video Browse page -> confirm -> Sync.
+- **Garbled "?" characters FIXED**: source literally contained `?` (em-dashes /
+  arrows / bullets lost in a prior bad encoding round-trip). Replaced all
+  user-visible ones with safe ASCII; confidence-legend dot is now a CSS colored
+  circle (no glyph).
+- **AMD/CPU clarified**: faster-whisper (CTranslate2) supports NVIDIA CUDA or CPU
+  only — AMD GPUs are NOT accelerated, so CPU is correct/expected. Removed the
+  misleading "install ROCm PyTorch" message (ROCm wheels are Linux-only) from
+  both the hardware label (`engine/align.py`) and `INSTALL.bat`.
+- Verified: syntax, version import, 6 pytest pass, mojibake sweep clean, zip
+  download (HTTP 200). GUI itself must be confirmed on Windows (no display here).

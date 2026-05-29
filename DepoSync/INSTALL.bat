@@ -8,16 +8,9 @@ if %errorlevel% == 0 (
     pip install torch --index-url https://download.pytorch.org/whl/cu121
     goto deps
 )
-for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -Command "Get-WmiObject Win32_VideoController | Select-Object -ExpandProperty AdapterCompatibility"`) do (
-    echo %%A | findstr /i "Advanced Micro Devices" >nul
-    if not errorlevel 1 (
-        echo AMD GPU detected -- installing ROCm PyTorch
-        pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
-        echo For faster-whisper AMD support: see README.txt
-        goto deps
-    )
-)
-echo No GPU -- CPU mode
+echo No NVIDIA GPU -- using CPU mode
+echo (Note: the Whisper engine supports NVIDIA CUDA or CPU only.
+echo  AMD/Intel GPUs are not accelerated; CPU is normal and expected.)
 pip install torch
 :deps
 pip install stable-ts faster-whisper PyQt6 python-vlc soundfile numpy pywin32

@@ -86,7 +86,8 @@ class SetupWizard(QDialog):
     """
     def __init__(self, transcript_path, lines, auto_sp, auto_sl, auto_ep, auto_el, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('DepoSync -- Job Setup')
+        from deposync import __version__ as _ver
+        self.setWindowTitle(f'DepoSync  v{_ver}  --  Job Setup')
         self.setMinimumWidth(600)
         self.setMinimumHeight(420)
 
@@ -115,9 +116,9 @@ class SetupWizard(QDialog):
         fp = lines[0].page; lp = lines[-1].page
         t_info = QLabel(
             f'<b>{os.path.basename(transcript_path)}</b>   '
-            f'{len(lines)} lines   pages {fp}?{lp}   '
+            f'{len(lines)} lines   pages {fp}-{lp}   '
             f'<span style="color:#5bc8ff;">'
-            f'Testimony: p{auto_sp}:{auto_sl} ? p{auto_ep}:{auto_el}'
+            f'Testimony: p{auto_sp}:{auto_sl} to p{auto_ep}:{auto_el}'
             f'</span>')
         t_info.setStyleSheet('color:#aaa; font-size:10px; padding:2px 0 6px 0;')
         t_info.setWordWrap(True)
@@ -171,9 +172,9 @@ class SetupWizard(QDialog):
 
         l.addWidget(QLabel(
             'How many video or audio files cover this deposition?\n\n'
-            '  ? Single recording  ?  1\n'
-            '  ? AM + PM session   ?  2\n'
-            '  ? Vol. 1, 2, 3 ?   ?  enter the count'))
+            '   -  Single recording  =  1\n'
+            '   -  AM + PM session   =  2\n'
+            '   -  Vol. 1, 2, 3 ...  =  enter the count'))
 
         row = QHBoxLayout()
         row.addWidget(QLabel('Number of videos:'))
@@ -203,7 +204,7 @@ class SetupWizard(QDialog):
         # File
         file_grp = QGroupBox('Video / Audio File')
         fl = QHBoxLayout(file_grp)
-        path_lbl = QLabel('? not selected ?')
+        path_lbl = QLabel('(no file selected)')
         path_lbl.setStyleSheet('color:#888;font-size:10px;')
         browse = QPushButton('Browse...')
         browse.setFixedWidth(90)
@@ -259,8 +260,8 @@ class SetupWizard(QDialog):
             if not e:
                 e = next((ln.text for ln in reversed(self._lines)
                           if ln.page == ep_spin.value()), '(not found)')
-            start_preview.setText(f'? "{s[:55]}"')
-            end_preview.setText(  f'? "{e[:55]}"')
+            start_preview.setText(f'> "{s[:55]}"')
+            end_preview.setText(  f'> "{e[:55]}"')
         sp_spin.valueChanged.connect(_upd_preview)
         sl_spin.valueChanged.connect(_upd_preview)
         ep_spin.valueChanged.connect(_upd_preview)
@@ -303,13 +304,13 @@ class SetupWizard(QDialog):
                 lines.append(
                     f'<b>Video {i}:</b>  {os.path.basename(d["path"])}  '
                     f'<span style="color:#5bc8ff;">'
-                    f'p{d["sp"]}:{d["sl"]} ? p{d["ep"]}:{d["el"]}'
+                    f'p{d["sp"]}:{d["sl"]} to p{d["ep"]}:{d["el"]}'
                     f'</span>')
             else:
                 lines.append(
                     f'<b>Video:</b>  {os.path.basename(d["path"])}  '
                     f'<span style="color:#5bc8ff;">'
-                    f'p{d["sp"]}:{d["sl"]} ? p{d["ep"]}:{d["el"]}'
+                    f'p{d["sp"]}:{d["sl"]} to p{d["ep"]}:{d["el"]}'
                     f'</span>')
         summary = QLabel('<br>'.join(lines))
         summary.setWordWrap(True)
@@ -331,7 +332,11 @@ class SetupWizard(QDialog):
         self._stack.setCurrentIndex(idx)
         total = self._stack.count() - 1  # last is confirm
         is_first  = (idx == 0)
-        is_last   = (idx == total)
+        # Step 1 (how-many-videos) is NEVER the final step: the video page(s)
+        # and the confirm page are only built when leaving step 1. Without this
+        # guard, step 1 looks like the last page and shows Sync Now -> the job
+        # gets accepted with zero videos selected.
+        is_last   = (idx == total) and (idx != 0)
 
         self._btn_back.setVisible(not is_first)
         self._btn_next.setVisible(not is_last)
@@ -340,14 +345,14 @@ class SetupWizard(QDialog):
         self._btn_cancel.setVisible(not is_last)
 
         if idx == 0:
-            self._title.setText('Step 1 of %d  ?  How Many Videos?' %
+            self._title.setText('Step 1 of %d  -  How Many Videos?' %
                                  (self._n_spin.value() + 1))
         elif is_last:
             self._title.setText('Ready to Sync')
         else:
             n = self._n_spin.value()
             self._title.setText(
-                f'Step {idx+1} of {n+1}  ?  Video {idx}')
+                f'Step {idx+1} of {n+1}  -  Video {idx}')
 
     def _back(self):
         idx = self._stack.currentIndex()
@@ -659,13 +664,14 @@ class ResultsDialog(QDialog):
         grp=QGroupBox('Results by Confidence  (Indata standard)')
         gl=QVBoxLayout(grp)
         for c,lbl,cnt in [
-            ('#4caf50',f'? 97%  ?  {green} lines  ?  auto-approved (Green)',green),
-            ('#ffb74d',f'70?97%  ?  {amber} lines  ?  review recommended',amber),
-            ('#ef5350',f'< 70%  ?  {red} lines  ?  needs attention',red),
-            ('#555',   f'No timestamp  ?  {no_ts} lines',no_ts),
+            ('#4caf50',f'>= 97%   -   {green} lines   -   auto-approved (Green)',green),
+            ('#ffb74d',f'70-97%   -   {amber} lines   -   review recommended',amber),
+            ('#ef5350',f'< 70%   -   {red} lines   -   needs attention',red),
+            ('#555',   f'No timestamp   -   {no_ts} lines',no_ts),
         ]:
-            row=QHBoxLayout(); dot=QLabel('?'); dot.setFixedWidth(20)
-            dot.setStyleSheet(f'color:{c};font-size:16px;')
+            row=QHBoxLayout()
+            dot=QLabel(); dot.setFixedSize(12,12)
+            dot.setStyleSheet(f'background:{c};border-radius:6px;')
             lb=QLabel(lbl); lb.setStyleSheet(f'color:{c};')
             row.addWidget(dot); row.addWidget(lb); row.addStretch()
             gl.addLayout(row)
@@ -699,7 +705,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('DepoSync  --  Legal Deposition Sync')
+        from deposync import __version__ as _ver
+        self.setWindowTitle(f'DepoSync  v{_ver}  --  Legal Deposition Sync')
         self.setMinimumSize(1200,700); self.resize(1440,860)
 
         self._t_path      = ''
@@ -878,7 +885,7 @@ class MainWindow(QMainWindow):
         self._refresh()
         fp,lp=lines[0].page,lines[-1].page
         self._info.setText(
-            f'{os.path.basename(p)}   {len(lines)} lines   pages {fp}?{lp}')
+            f'{os.path.basename(p)}   {len(lines)} lines   pages {fp}-{lp}')
         self.statusBar().showMessage(f'Transcript loaded: {len(lines)} lines.')
 
         # Open wizard immediately
@@ -897,8 +904,8 @@ class MainWindow(QMainWindow):
 
         names=', '.join(os.path.basename(d['path']) for d in self._video_data)
         self._info.setText(
-            f'{os.path.basename(p)}   {len(lines)} lines   pages {fp}?{lp}   '
-            f'?   {len(self._video_data)} video(s): {names}')
+            f'{os.path.basename(p)}   {len(lines)} lines   pages {fp}-{lp}   '
+            f'--   {len(self._video_data)} video(s): {names}')
         self._refresh()
 
         if data['sync_now']:

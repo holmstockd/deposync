@@ -62,10 +62,10 @@ def detect_device() -> Tuple[str, str, str]:
         desc = (f'CPU  [NVIDIA GPU detected: {gpu_name} -- '
                 f'run INSTALL.bat to enable CUDA]')
     elif vendor == 'AMD':
-        desc = (f'CPU  [AMD GPU detected: {gpu_name} -- '
-                f'install ROCm PyTorch to enable GPU: '
-                f'pip install torch --index-url '
-                f'https://download.pytorch.org/whl/rocm6.2]')
+        desc = (f'CPU  [AMD GPU detected: {gpu_name}. The Whisper engine '
+                f'(faster-whisper / CTranslate2) supports NVIDIA CUDA or CPU '
+                f'only -- AMD GPUs are not supported, so CPU is normal and '
+                f'expected here.]')
     else:
         try:
             import psutil
