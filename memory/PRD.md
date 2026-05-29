@@ -114,6 +114,30 @@ DepoSync/
 - FUTURE (if word-accurate + fast is needed on AMD): whisper.cpp Vulkan or
   ONNX+DirectML can use AMD GPUs on Windows — not yet integrated.
 
+## v0.8 (Feb 2026) — review workflow, exhibits, debug log, WAV-next-to-video
+- **Debug log** (`deposync/debuglog.py`): plain-text trace to
+  `~/DepoSync_debug.log` AND `<video folder>/DepoSync_debug.log`, timestamped
+  with elapsed seconds. Logs app start, job setup, every sync step, `_on_done`
+  stages, and exceptions — so a stall can be pinpointed (addresses "it froze").
+- **WAV next to video + reuse**: `extract.to_wav` now writes
+  `<videobase>_synclync.wav` beside the video (matches the user's own naming)
+  and REUSES it if present (instant re-sync). Temp fallback if folder not
+  writable. Timecodes always = video timeline. Worker no longer deletes the
+  companion WAV.
+- **Meaningful confidence scoring** (InData-style): fast sync now scores each
+  line by distance to a detected speech ONSET — green (>=.90, snapped to a clear
+  speech start), amber (.70-.90), red (<.70, interpolated). On the real 218-min
+  job: 2737 green / 1546 amber / 112 red (was uniform 0.80). `CONF_GREEN`
+  lowered 0.97->0.90 so the table colors match. ResultsDialog shows the
+  breakdown; "Review Sync" leads to manual/range correction.
+- **Add Exhibits button** + dialog: auto-detects exhibit references (22 found in
+  sample), "Link Files..." attaches documents by filename number. XMEF export
+  now writes exhibit Annotations AND bundles the actual files under `Exhibits/`
+  in the .xmef. Stored on `self._exhibits`.
+- Version -> v0.8. Tests: 8 pytest pass (added `test_xmef_exhibits.py`).
+- Verified end-to-end on the user's real audio: fast sync 2.5s, 100% lines,
+  scoring distribution, exhibits, XMEF-with-exhibits all good.
+
 ## Delivery to user
 - Direct download: `{PREVIEW_URL}/api/download/DepoSync_Source.zip`
 - OR "Save to GitHub" (now fixed to include all `.py`).

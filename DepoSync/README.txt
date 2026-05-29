@@ -49,8 +49,29 @@ TYPICAL WORKFLOW
    INSTALL.bat already installs the required pywin32 package.
 
 ------------------------------------------------------------
-NOTES
+DEBUG LOG (if something goes wrong)
 ------------------------------------------------------------
+DepoSync writes a plain-text trace to:
+   - your home folder:        %USERPROFILE%\DepoSync_debug.log
+   - next to the video:       <video folder>\DepoSync_debug.log
+Open it in Notepad and send it over if a sync stalls -- it shows every step
+with timing so the problem can be pinpointed.
+
+------------------------------------------------------------
+AUDIO FILE (next to the video)
+------------------------------------------------------------
+On first sync, the audio is extracted next to the video as
+<videoname>_synclync.wav. It is reused on later syncs (instant), and you can
+keep or delete it. Timecodes always refer to the VIDEO timeline.
+
+------------------------------------------------------------
+EXHIBITS
+------------------------------------------------------------
+Click "Add Exhibits" on the toolbar. Exhibits referenced in the transcript are
+detected automatically; use "Link Files..." to attach the documents (matched by
+the number in the filename). Linked exhibits are written into the XMEF export
+(and the files are bundled inside it).
+
 * First run downloads the Whisper model (one-time).
 * GPU is auto-detected; CPU also works (slower).
 * Need a single .exe instead of Python? See "Building an EXE"

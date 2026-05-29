@@ -129,9 +129,15 @@ def run(
     speech. Returns the same list with timestamp_sec / confidence filled in.
     """
     cb = progress or (lambda p, m: None)
+    from deposync import debuglog as _dbg
+    import time as _t
+    _start = _t.time()
+    _dbg.log(f'align_fast: START {len(lines)} lines, audio={audio_path}')
     cb(1, "Fast waveform sync starting...")
 
     energy, sr = _frame_energy(audio_path, cb)
+    _dbg.log(f'align_fast: energy frames={energy.size} sr={sr} '
+             f'({_t.time()-_start:.1f}s)')
     if energy.size == 0:
         raise RuntimeError("Could not read any audio for sync.")
 
@@ -174,15 +180,39 @@ def run(
     pos = np.clip(pos, 0, len(speech_idx) - 1)
     real_times = frame_time[speech_idx[pos]]
 
+    # Speech ONSETS (silence -> speech transitions). A line that lands right on
+    # an onset is acoustically anchored (high confidence). Lines deep inside a
+    # continuous block are interpolated by speaking rate (medium confidence).
+    onset_mask = mask & ~np.concatenate([[False], mask[:-1]])
+    onset_times = frame_time[np.flatnonzero(onset_mask)]
+    has_onsets = onset_times.size > 0
+
     n = len(lines)
     for i, ln in enumerate(lines):
         if ln.manually_set or weights[i] == 0:
             continue
-        ln.timestamp_sec = round(float(real_times[i]), 3)
-        ln.confidence = 0.80          # approximate waveform sync -> amber/review
+        rt = float(real_times[i])
+        ln.timestamp_sec = round(rt, 3)
+        # Confidence: distance to nearest detected speech onset.
+        if has_onsets:
+            j = int(np.searchsorted(onset_times, rt))
+            cands = []
+            if j < onset_times.size:
+                cands.append(abs(onset_times[j] - rt))
+            if j > 0:
+                cands.append(abs(rt - onset_times[j - 1]))
+            d = min(cands) if cands else 99.0
+        else:
+            d = 99.0
+        if d <= 1.5:
+            ln.confidence = 0.93      # snapped to a clear speech start -> green
+        elif d <= 4.0:
+            ln.confidence = 0.80      # near speech activity -> amber
+        else:
+            ln.confidence = 0.68      # interpolated inside a long block -> red
         if i % 800 == 0:
             cb(60 + int(i / max(n, 1) * 38),
-               f"Mapping line {i}/{n}...")
+               f"Scoring line {i}/{n}...")
 
     # Enforce monotonic non-decreasing timestamps (safety).
     last = None
@@ -212,6 +242,10 @@ def run(
 
     matched = sum(1 for ln in lines if ln.timestamp_sec is not None)
     pct = int(matched * 100 / max(len(lines), 1))
+    green = sum(1 for ln in lines if ln.timestamp_sec is not None and ln.confidence >= 0.90)
+    _dbg.log(f'align_fast: DONE {matched}/{len(lines)} ts ({pct}%), '
+             f'{green} green, speech={total_speech/60:.0f}min, '
+             f'total={_t.time()-_start:.1f}s')
     cb(100, f"Done: {matched}/{len(lines)} lines timestamped ({pct}%). "
             f"Speech: {total_speech/60:.0f} min of {frame_time[-1]/60:.0f} min.")
     return lines

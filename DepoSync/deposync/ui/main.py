@@ -64,7 +64,9 @@ C_AM_BG=QColor(35,25, 4);  C_AM_FG=QColor(210,150,35)
 C_RD_BG=QColor(44, 8, 8);  C_RD_FG=QColor(210, 50,50)
 C_NO_BG=QColor(20,12,12);  C_NO_FG=QColor(88, 52,52)
 C_MN_BG=QColor(10,28,50);  C_MN_FG=QColor(100,180,255)
-CONF_GREEN=0.97; CONF_AMBER=0.70
+CONF_GREEN=0.90; CONF_AMBER=0.70
+
+from deposync import debuglog as _dbg
 
 def _mono():
     f=QFont('Consolas',9); f.setStyleHint(QFont.StyleHint.Monospace); return f
@@ -596,6 +598,8 @@ class SyncWorker(QThread):
     def run(self):
         wavs = []
         try:
+            _dbg.banner(f'SYNC START method={self.method} videos={len(self.video_data)} '
+                        f'total_lines={len(self.all_lines)}')
             from deposync.engine.extract import to_wav
             if self.method == 'precise':
                 from deposync.engine.align import run as align_run
@@ -607,7 +611,10 @@ class SyncWorker(QThread):
                 pfx = f'[Video {i+1}/{n}] ' if n > 1 else ''
 
                 seg_lines = self._get_lines(d)
+                _dbg.log(f'video {i+1}: path={d["path"]} range p{d["sp"]}:{d["sl"]}'
+                         f'-p{d["ep"]}:{d["el"]} seg_lines={len(seg_lines)}')
                 if not seg_lines:
+                    _dbg.log(f'video {i+1}: NO lines in range, skipping')
                     continue
 
                 self.step.emit(f'{pfx}Extracting Audio')
@@ -619,8 +626,9 @@ class SyncWorker(QThread):
                     import soundfile as sf
                     with sf.SoundFile(wav) as f:
                         self.video_dur = len(f)/f.samplerate
+                    _dbg.log(f'video {i+1}: wav dur={self.video_dur:.0f}s')
                 except Exception:
-                    pass
+                    _dbg.exc('reading wav duration')
 
                 self.step_done.emit()
                 self.step.emit(f'{pfx}Processing Audio')
@@ -649,14 +657,21 @@ class SyncWorker(QThread):
                 pass
             self.prog.emit(100,'Complete.')
             self.step_done.emit()
+            _dbg.log('SyncWorker: emitting done signal')
             self.done.emit()
 
         except Exception as e:
+            _dbg.exc('SyncWorker.run')
             self.error.emit(f'{e}\n\n{_tb.format_exc()[:1200]}')
         finally:
+            # Keep the companion <base>_synclync.wav next to the video so the
+            # next sync of the same job is instant; only remove temp wavs.
+            import tempfile
+            tmp = tempfile.gettempdir()
             for w in wavs:
                 try:
-                    if os.path.exists(w): os.remove(w)
+                    if os.path.exists(w) and os.path.dirname(os.path.abspath(w)) == tmp:
+                        os.remove(w)
                 except Exception: pass
 
 
@@ -741,6 +756,7 @@ class MainWindow(QMainWindow):
         self._model       = 'base.en'
         self._language    = 'en'
         self._sync_method = 'fast'   # 'fast' (waveform, seconds) or 'precise' (AI)
+        self._exhibits    = []       # linked Exhibit objects (for XMEF export)
         self._video_dur   = 0.0
         self._tap_mode    = False
         self._dur         = 0.0
@@ -771,10 +787,13 @@ class MainWindow(QMainWindow):
                                'Load transcript and set up videos')
         tb.addSeparator()
         self._act_sync   = _a('Sync Now', self._run_sync,
-                               'Start forced alignment')
+                               'Start sync')
+        tb.addSeparator()
+        self._act_exh    = _a('Add Exhibits', self._add_exhibits,
+                               'Link exhibit files; included in XMEF export')
         tb.addSeparator()
         self._act_export = _a('Export', self._export,
-                               'Save InData ASCII or XMEF')
+                               'Save InData ASCII, XMEF, or Sanction/OnCue MDB')
         tb.addSeparator()
         _a('Settings', self._settings)
 
@@ -930,6 +949,13 @@ class MainWindow(QMainWindow):
 
         if not self._video_data: return
 
+        # Attach debug log next to the (first) video folder.
+        try:
+            _dbg.add_path(os.path.dirname(os.path.abspath(self._video_data[0]['path'])))
+            _dbg.log(f'job ready: transcript={self._t_path} '
+                     f'videos={[d["path"] for d in self._video_data]}')
+        except Exception: pass
+
         # Load first video into player
         if self._has_player:
             try: self._player.load(self._video_data[0]['path'])
@@ -989,6 +1015,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('Sync cancelled.')
 
     def _on_done(self):
+        _dbg.log('_on_done: entered (main thread)')
         self._video_dur=self._worker.video_dur
         self._act_sync.setEnabled(True)
         if self._prog_dlg: self._prog_dlg.accept(); self._prog_dlg=None
@@ -997,14 +1024,19 @@ class MainWindow(QMainWindow):
             try:
                 self._player.set_mute(False)
                 self._player.load(self._video_data[0]['path'], autoplay=False)
-            except Exception: pass
+                _dbg.log('_on_done: player reloaded')
+            except Exception: _dbg.exc('_on_done player reload')
+        _dbg.log(f'_on_done: populating table ({len(self._lines)} rows)...')
         self._populate_table(); self._refresh()
+        _dbg.log('_on_done: table populated')
         ts=sum(1 for l in self._lines if l.timestamp_sec is not None)
         pct=ts*100//max(len(self._lines),1)
         self.statusBar().showMessage(f'Sync done: {ts}/{len(self._lines)} ({pct}%).')
+        _dbg.log(f'_on_done: showing ResultsDialog ({ts}/{len(self._lines)} ts)')
         res=ResultsDialog(self._lines,self)
         res.export_requested.connect(self._export)
         res.exec()
+        _dbg.log('_on_done: ResultsDialog closed')
 
     def _on_error(self,msg):
         self._act_sync.setEnabled(True)
@@ -1095,8 +1127,87 @@ class MainWindow(QMainWindow):
             w=os.path.splitext(os.path.basename(self._t_path))[0].replace('_',' ')
             vf=os.path.basename(self._video_data[0]['path']) if self._video_data else ''
             from deposync.export.xmef_export import write
-            n=write(self._lines,p,witness=w,video_file=vf,video_dur_sec=self._video_dur)
-        QMessageBox.information(self,'Exported',f'Saved {n} timestamped lines to:\n{p}')
+            n=write(self._lines,p,witness=w,video_file=vf,
+                    video_dur_sec=self._video_dur,exhibits=self._exhibits)
+        exh_msg=(f'\nLinked exhibits included: {sum(1 for e in self._exhibits if e.file_path)}'
+                 if (fmt=='xmef' and self._exhibits) else '')
+        QMessageBox.information(self,'Exported',
+            f'Saved {n} timestamped lines to:\n{p}{exh_msg}')
+
+    # -- Add / link exhibits -----------------------------------------------------
+
+    def _add_exhibits(self):
+        if not self._lines:
+            QMessageBox.warning(self,'No Transcript','Load a transcript first.'); return
+        from deposync.parser.exhibits import find_exhibit_refs, unique_exhibits, link_files
+
+        dlg=QDialog(self); dlg.setWindowTitle('Add / Link Exhibits')
+        dlg.resize(620,440)
+        v=QVBoxLayout(dlg)
+        v.addWidget(QLabel(
+            'Exhibits referenced in this transcript are detected automatically. '
+            'Click "Link Files" to attach the exhibit documents (matched by '
+            'number in the filename). Linked exhibits are written into the XMEF.'))
+
+        tbl=QTableWidget(0,4)
+        tbl.setHorizontalHeaderLabels(['Exhibit','First Ref','# Refs','Linked File'])
+        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        v.addWidget(tbl,1)
+
+        # seed from already-linked or fresh detection
+        if self._exhibits:
+            exhibits=list(self._exhibits)
+        else:
+            exhibits=unique_exhibits(find_exhibit_refs(self._lines))
+
+        def _fill():
+            tbl.setRowCount(len(exhibits))
+            for r,e in enumerate(exhibits):
+                ref=f'p{e.page}:{e.line_num}' if e.page else '-'
+                fn=os.path.basename(e.file_path) if e.file_path else ''
+                for c,val in enumerate([e.label,ref,str(e.ref_count),fn]):
+                    it=QTableWidgetItem(val)
+                    if c==3 and fn: it.setForeground(QBrush(QColor(70,190,70)))
+                    tbl.setItem(r,c,it)
+        _fill()
+
+        btns=QHBoxLayout()
+        b_link=QPushButton('Link Files...')
+        b_clear=QPushButton('Clear Links')
+        btns.addWidget(b_link); btns.addWidget(b_clear); btns.addStretch()
+        cnt=QLabel()
+        btns.addWidget(cnt)
+        v.addLayout(btns)
+
+        def _upd_cnt():
+            linked=sum(1 for e in exhibits if e.file_path)
+            cnt.setText(f'{len(exhibits)} exhibits, {linked} linked')
+        _upd_cnt()
+
+        def _link():
+            paths,_=QFileDialog.getOpenFileNames(
+                self,'Select Exhibit Files','',
+                'Exhibits (*.pdf *.tif *.tiff *.jpg *.jpeg *.png *.docx *.doc '
+                '*.xlsx *.txt);;All Files (*)')
+            if not paths: return
+            nonlocal exhibits
+            exhibits=link_files(self._lines,
+                [e.file_path for e in exhibits if e.file_path]+paths)
+            _fill(); _upd_cnt()
+        def _clear():
+            for e in exhibits: e.file_path=''
+            _fill(); _upd_cnt()
+        b_link.clicked.connect(_link); b_clear.clicked.connect(_clear)
+
+        bb=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
+        if dlg.exec()==QDialog.DialogCode.Accepted:
+            self._exhibits=exhibits
+            linked=sum(1 for e in exhibits if e.file_path)
+            self.statusBar().showMessage(
+                f'{len(exhibits)} exhibits ({linked} linked) saved for export.')
+            _dbg.log(f'exhibits: saved {len(exhibits)} ({linked} linked)')
 
     # ?? Settings ??????????????????????????????????????????????????????????????
 
@@ -1228,6 +1339,8 @@ class MainWindow(QMainWindow):
 
 def main():
     _write_ok()
+    from deposync import __version__ as _ver
+    _dbg.banner(f'DepoSync v{_ver} starting')
     try:
         for base in [r'C:\DepoSync',
                      os.path.join(os.environ.get('APPDATA',''),'DepoSync')]:
