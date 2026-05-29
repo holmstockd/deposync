@@ -524,8 +524,8 @@ class ProgressDialog(QDialog):
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet('color:#333;'); lay.addWidget(sep)
 
-        note = QLabel('stable-ts forced alignment running.  '
-                      'CPU: ~4 min/hr of audio.  GPU: ~1 min/hr.')
+        note = QLabel('Fast waveform sync: a few seconds for hours of audio, '
+                      'no GPU needed. (Precise AI mode is slower; see Settings.)')
         note.setWordWrap(True)
         note.setStyleSheet('color:#666;font-size:10px;padding:3px 6px;'
                            'background:#1a1a1a;border-radius:3px;')
@@ -578,12 +578,13 @@ class SyncWorker(QThread):
     done      = pyqtSignal()
     error     = pyqtSignal(str)
 
-    def __init__(self, video_data, all_lines, model, language):
+    def __init__(self, video_data, all_lines, model, language, method='fast'):
         super().__init__()
         self.video_data = video_data    # [{path,sp,sl,ep,el}, ...]
         self.all_lines  = all_lines
         self.model      = model
         self.language   = language
+        self.method     = method        # 'fast' (waveform) or 'precise' (AI)
         self.video_dur  = 0.0
 
     def _get_lines(self, d):
@@ -596,7 +597,10 @@ class SyncWorker(QThread):
         wavs = []
         try:
             from deposync.engine.extract import to_wav
-            from deposync.engine.align   import run as align_run
+            if self.method == 'precise':
+                from deposync.engine.align import run as align_run
+            else:
+                from deposync.engine.align_fast import run as align_run
 
             n = len(self.video_data)
             for i, d in enumerate(self.video_data):
@@ -620,7 +624,7 @@ class SyncWorker(QThread):
 
                 self.step_done.emit()
                 self.step.emit(f'{pfx}Processing Audio')
-                self.prog.emit(0, 'Starting forced alignment...')
+                self.prog.emit(0, 'Starting sync...')
 
                 align_run(
                     audio_path=wav,
@@ -736,6 +740,7 @@ class MainWindow(QMainWindow):
         self._prog_dlg    = None
         self._model       = 'base.en'
         self._language    = 'en'
+        self._sync_method = 'fast'   # 'fast' (waveform, seconds) or 'precise' (AI)
         self._video_dur   = 0.0
         self._tap_mode    = False
         self._dur         = 0.0
@@ -867,15 +872,23 @@ class MainWindow(QMainWindow):
     # ?? GPU detection ?????????????????????????????????????????????????????????
 
     def _detect_hw(self):
+        # Default engine is the fast waveform sync, which needs no GPU at all.
+        if self._sync_method == 'fast':
+            self._hw_lbl.setText('  Engine: Fast waveform sync (no GPU needed)  ')
+            self._hw_lbl.setStyleSheet('color:#4f4;font-weight:bold;font-size:10px;padding:0 10px;')
+            self._hw_lbl.setToolTip(
+                'Fast waveform sync runs in seconds on any machine. '
+                'Switch to Precise (AI) in Settings for word-level accuracy.')
+            return
         try:
             from deposync.engine.align import detect_device
             dev,_,desc=detect_device()
             if dev=='cuda':
-                self._hw_lbl.setText(f'  GPU: {desc}  ')
+                self._hw_lbl.setText(f'  AI Sync GPU: {desc}  ')
                 self._hw_lbl.setStyleSheet('color:#4f4;font-weight:bold;font-size:10px;padding:0 10px;')
             else:
                 short=desc.split('[')[0].strip()
-                self._hw_lbl.setText(f'  {short}  ')
+                self._hw_lbl.setText(f'  AI Sync: {short}  ')
                 self._hw_lbl.setStyleSheet('color:#fa4;font-size:10px;padding:0 10px;')
                 self._hw_lbl.setToolTip(desc)
         except Exception: pass
@@ -958,7 +971,7 @@ class MainWindow(QMainWindow):
         self._prog_dlg.show()
 
         self._act_sync.setEnabled(False)
-        self._worker=SyncWorker(self._video_data,self._lines,self._model,self._language)
+        self._worker=SyncWorker(self._video_data,self._lines,self._model,self._language,self._sync_method)
         self._worker.step.connect(self._prog_dlg.set_step)
         self._worker.step_done.connect(self._prog_dlg.complete_step)
         self._worker.prog.connect(lambda p,m: self._prog_dlg.set_prog(p,m))
@@ -1090,6 +1103,15 @@ class MainWindow(QMainWindow):
     def _settings(self):
         dlg=QDialog(self); dlg.setWindowTitle('Settings')
         fl=QFormLayout(dlg)
+
+        # Sync engine
+        scb=QComboBox()
+        scb.addItem('Fast -- waveform sync (seconds, any machine)','fast')
+        scb.addItem('Precise -- AI Whisper (slow, word-accurate)','precise')
+        for i in range(scb.count()):
+            if scb.itemData(i)==self._sync_method: scb.setCurrentIndex(i)
+        fl.addRow('Sync engine:',scb)
+
         _M=[('base.en','Base -- recommended'),('small.en','Small -- more accurate'),
             ('medium.en','Medium -- most accurate'),('tiny.en','Tiny -- fastest')]
         mcb=QComboBox()
@@ -1097,12 +1119,16 @@ class MainWindow(QMainWindow):
         for i in range(mcb.count()):
             if mcb.itemData(i)==self._model: mcb.setCurrentIndex(i)
         lang=QLineEdit(self._language)
-        fl.addRow('Model:',mcb); fl.addRow('Language:',lang)
-        fl.addRow(QLabel('<small style="color:#777">GPU: see README.txt</small>'))
+        fl.addRow('AI model (Precise only):',mcb); fl.addRow('Language:',lang)
+        fl.addRow(QLabel('<small style="color:#777">Fast sync needs no GPU. '
+                         'Precise (AI) uses NVIDIA CUDA or CPU; refine either '
+                         'with TAP SYNC.</small>'))
         bb=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); fl.addRow(bb)
         if dlg.exec()==QDialog.DialogCode.Accepted:
+            self._sync_method=scb.currentData()
             self._model=mcb.currentData(); self._language=lang.text().strip() or 'en'
+            self._detect_hw()
 
     # ?? Video controls ????????????????????????????????????????????????????????
 

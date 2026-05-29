@@ -91,6 +91,29 @@ DepoSync/
   per video. Data stored as plain ints (`vp._sp/_sl/_ep/_el`).
 - Version bumped to **v0.6** (title bar).
 
+## v0.7 (Feb 2026) — Fast waveform sync (the real fix for speed)
+- **Root problem**: the app ran Whisper AI forced-alignment over the ENTIRE
+  audio (~15-30 min on CPU, often never finishing). InData/YesLaw are fast
+  because they do NOT use AI. AMD GPUs can't accelerate Whisper (CTranslate2 =
+  CUDA/CPU only), so it was stuck on CPU.
+- **NEW default engine `engine/align_fast.py`**: waveform-based sync — energy
+  VAD finds speech vs silence (handles breaks/recesses), then distributes
+  transcript lines across the speech timeline weighted by spoken-character
+  count. Thresholds derived per-file from its own energy distribution -> works
+  on ANY deposition, no per-job tuning.
+  - TESTED on the user's real 3.6-hour audio (AS033126_synclync.wav, 218 min):
+    **2.3-2.7 sec**, 100% of 4395 lines timestamped, last line "concluded at
+    2:47 p.m." mapped to 03:37:51 (end of audio). GPU-independent.
+  - Approximate (confidence 0.80 -> amber/"review"); user refines hot spots
+    with TAP SYNC. Every line gets a timestamp (blank/marker lines filled).
+- **Settings** now has a "Sync engine" choice: Fast (default) vs Precise (AI
+  Whisper, slow, word-accurate). Toolbar label shows "Engine: Fast waveform
+  sync (no GPU needed)" so the old CPU/AMD confusion is gone for default mode.
+- Progress is now REAL (fast sync emits true progress, not a fake timer).
+- Version -> v0.7.
+- FUTURE (if word-accurate + fast is needed on AMD): whisper.cpp Vulkan or
+  ONNX+DirectML can use AMD GPUs on Windows — not yet integrated.
+
 ## Delivery to user
 - Direct download: `{PREVIEW_URL}/api/download/DepoSync_Source.zip`
 - OR "Save to GitHub" (now fixed to include all `.py`).
